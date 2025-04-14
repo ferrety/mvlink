@@ -10,6 +10,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 
+class TestMainWindow;
 
 class MainWindow : public QMainWindow
 {
@@ -29,6 +30,8 @@ private slots:
     void clearList();
 
 private:
+    friend class TestMainWindow;
+
     QListWidget *fileListWidget;
     QLineEdit *destinationPathEdit;
     QPushButton *browseButton;

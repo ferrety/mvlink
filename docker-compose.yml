@@ -17,7 +17,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - .:/app
     network_mode: host
-    command: /bin/bash -c "qmake6 mvlink.pro && ./mvlink"
+    command: /bin/bash -c "qmake6 mvlink.pro && make &&./mvlink"
 
   make:
     build:
@@ -25,5 +25,13 @@ services:
     container_name: mvlink-make
     volumes:
       - .:/app
-
     command: /bin/bash -c "make ${MAKE_TARGET}"
+  test:
+    build:
+      context: .
+    container_name: mvlink-test
+    environment:
+      - QT_QPA_PLATFORM=offscreen
+    volumes:
+      - .:/app
+    command: /bin/bash -c "qmake6 mvlink-test.pro && make && ./mvlink-test"

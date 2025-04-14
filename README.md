@@ -49,7 +49,7 @@ xhost +local:docker
 
 2. Build and run the application:
 ```bash
-docker compose up launch
+docker compose run launch
 ```
 
 3. After using the application, you can revoke X server access:
@@ -61,5 +61,12 @@ xhost -local:docker
 
 1. Run a specific make target, e.g, clean:
 ```bash
-MAKE_TARGET=clean docker compose up make
+MAKE_TARGET=clean docker compose run make
+```
+
+### Running Tests with Docker Compose
+
+1. Build and run the tests:
+```bash
+docker compose run test
 ```

@@ -1,4 +1,4 @@
-QT       += core gui widgets
+QT       += core gui widgets testlib
 
 TARGET = mvlink
 TEMPLATE = app
@@ -9,3 +9,4 @@ SOURCES += \
 
 HEADERS += \
     src/mainwindow.h
+    
