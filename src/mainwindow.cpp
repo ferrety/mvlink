@@ -2,6 +2,13 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QProcess>
+#include <QUrl>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QMimeData>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QScrollBar>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -9,13 +16,13 @@ MainWindow::MainWindow(QWidget *parent)
     setAcceptDrops(true);
     setupUi();
 
-    connect(browseButton, &QPushButton::clicked, this, &MainWindow::browseDestinationFolder);
-    connect(moveButton, &QPushButton::clicked, this, &MainWindow::moveAndCreateSymlinks);
+    connect(browseButton, &QPushButton::clicked, this, &MainWindow::browseDirectory);
+    connect(moveButton, &QPushButton::clicked, this, &MainWindow::handleMove);
     connect(clearButton, &QPushButton::clicked, this, &MainWindow::clearList);
     
     setWindowTitle("mvlink - Drag & Drop Files");
     statusLabel->setText("Drag and drop files here");
-}
+    }
 
 MainWindow::~MainWindow()
 {
@@ -44,7 +51,7 @@ void MainWindow::setupUi()
     fileListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     mainLayout->addWidget(fileListWidget);
     
-    // Action buttons
+    // Buttons
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     moveButton = new QPushButton("Move Files");
     clearButton = new QPushButton("Clear List");
@@ -56,8 +63,17 @@ void MainWindow::setupUi()
     statusLabel = new QLabel();
     mainLayout->addWidget(statusLabel);
     
-    // Set minimum size
-    resize(600, 400);
+    // Log view
+    QLabel *logLabel = new QLabel("Log:");
+    mainLayout->addWidget(logLabel);
+
+    logView = new QTextEdit();
+    logView->setReadOnly(true);
+    logView->setLineWrapMode(QTextEdit::WidgetWidth);
+    logView->setMaximumHeight(80); // Show approximately 2-3 lines by default
+    mainLayout->addWidget(logView);
+
+    resize(600, 450);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
@@ -84,93 +100,102 @@ void MainWindow::dropEvent(QDropEvent *event)
             }
         }
         
-        statusLabel->setText(QString("%1 files ready to be moved").arg(fileListWidget->count()));
+        QString message = QString("%1 files ready to be moved").arg(fileListWidget->count());
+        statusLabel->setText(message);
+        logMessage(message);
     }
 }
 
-void MainWindow::browseDestinationFolder()
+void MainWindow::browseDirectory()
 {
     QString dir = QFileDialog::getExistingDirectory(this, "Select Destination Directory",
                                                    QDir::homePath(),
-                                                   QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+                                                   QFileDialog::ShowDirsOnly);
                                                    
     if (!dir.isEmpty()) {
         destinationPathEdit->setText(dir);
+        logMessage("Destination folder set to: " + dir);
     }
 }
 
-void MainWindow::moveAndCreateSymlinks()
+void MainWindow::handleMove()
 {
     QString destDir = destinationPathEdit->text();
     if (destDir.isEmpty()) {
         QMessageBox::warning(this, "Warning", "Please select a destination folder first.");
+        logMessage("Error: No destination folder selected");
         return;
     }
     
     QDir dir(destDir);
     if (!dir.exists()) {
         QMessageBox::critical(this, "Error", "Destination folder does not exist.");
+        logMessage("Error: Destination folder does not exist");
         return;
     }
     
     int successCount = 0;
-    int failCount = 0;
+    failCount = 0;
     
+    logMessage("Starting move operation to: " + destDir);
+        
     for (int i = 0; i < fileListWidget->count(); ++i) {
         QListWidgetItem *item = fileListWidget->item(i);
         QString sourcePath = item->data(Qt::UserRole).toString();
         QFileInfo fileInfo(sourcePath);
-        QString destPath = dir.absoluteFilePath(fileInfo.fileName());
         
-        // Check if destination file already exists
+        if (fileInfo.isSymLink()) {
+            markFileFailed(item, "Skipped: " + fileInfo.fileName() + " (already a symbolic link)"); 
+            continue;
+        }
+
+        QString destPath = dir.absoluteFilePath(fileInfo.fileName());
+
         if (QFile::exists(destPath)) {
             if (QMessageBox::question(this, "File exists", 
                 QString("File %1 already exists in destination. Overwrite?").arg(fileInfo.fileName())) 
                 != QMessageBox::Yes) {
-                failCount++;
-                continue;
+                    markFileFailed(item, "file exists");
+                    continue;
             }
             QFile::remove(destPath);
+            logMessage("Removed existing file: " + fileInfo.fileName());
         }
-        
-        // Move the file to destination
+
         if (QFile::copy(sourcePath, destPath)) {
-            // If move successful, create symbolic link
             if (QFile::remove(sourcePath)) {
                 createSymbolicLink(destPath, sourcePath);
                 successCount++;
+                logMessage("Moved: " + fileInfo.fileName());
+                delete fileListWidget->takeItem(i);
+                i--;
             } else {
-                // If unable to remove source file, remove the copied file
                 QFile::remove(destPath);
-                failCount++;
-                QMessageBox::warning(this, "Warning", 
-                    QString("Failed to remove source file: %1").arg(sourcePath));
+                QString errorMsg = "Failed to remove source file: " + sourcePath;
+                QMessageBox::warning(this, "Warning", errorMsg);
+                markFileFailed(item, "Error:" + errorMsg);
             }
         } else {
-            failCount++;
-            QMessageBox::warning(this, "Warning", 
-                QString("Failed to copy file: %1").arg(sourcePath));
-        }
+            QString errorMsg = "Failed to copy file: " + sourcePath;
+            QMessageBox::warning(this, "Warning", errorMsg);
+            markFileFailed(item, "Error:" + errorMsg);        }
     }
-    
-    // Clear the list if successful
-    if (successCount > 0 && failCount == 0) {
-        fileListWidget->clear();
-    }
-    
-    statusLabel->setText(QString("Operation completed: %1 succeeded, %2 failed").arg(successCount).arg(failCount));
+    QString resultMessage = QString("Operation completed: %1 succeeded, %2 failed").arg(successCount).arg(failCount);
+    statusLabel->setText(resultMessage);
+    logMessage(resultMessage);
 }
 
 void MainWindow::clearList()
 {
     fileListWidget->clear();
     statusLabel->setText("Drag and drop files here");
+    logMessage("File list cleared");
 }
 
 void MainWindow::createSymbolicLink(const QString &sourcePath, const QString &destPath)
 {
     #ifdef Q_OS_WIN
-        // On Windows
+        // TODO: On Windows?
         QProcess process;
         process.start("cmd.exe", QStringList() << "/c" << "mklink" << QDir::toNativeSeparators(destPath) << QDir::toNativeSeparators(sourcePath));
         process.waitForFinished();
@@ -178,4 +203,20 @@ void MainWindow::createSymbolicLink(const QString &sourcePath, const QString &de
         // On Unix/Linux
         QFile::link(sourcePath, destPath);
     #endif
+}
+
+void MainWindow::logMessage(const QString &message)
+{
+    logView->append(message);
+    
+    // scroll to latest message
+    QScrollBar *scrollBar = logView->verticalScrollBar();
+    scrollBar->setValue(scrollBar->maximum());
+}
+
+void MainWindow::markFileFailed(QListWidgetItem *item, const QString &reason)
+{
+    failCount++;
+    logMessage(reason);
+    item->setForeground(Qt::red);
 }

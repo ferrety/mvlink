@@ -6,14 +6,10 @@
 #include <QPushButton>
 #include <QLineEdit>
 #include <QLabel>
-#include <QFileDialog>
-#include <QMessageBox>
+#include <QTextEdit>
 #include <QDragEnterEvent>
 #include <QDropEvent>
-#include <QMimeData>
-#include <QUrl>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
+
 
 class MainWindow : public QMainWindow
 {
@@ -28,8 +24,8 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 private slots:
-    void browseDestinationFolder();
-    void moveAndCreateSymlinks();
+    void browseDirectory();
+    void handleMove();
     void clearList();
 
 private:
@@ -39,9 +35,13 @@ private:
     QPushButton *moveButton;
     QPushButton *clearButton;
     QLabel *statusLabel;
+    QTextEdit *logView;
+    int failCount = 0;
     
     void setupUi();
     void createSymbolicLink(const QString &sourcePath, const QString &destPath);
+    void logMessage(const QString &message);
+    void markFileFailed(QListWidgetItem *item, const QString &reason);
 };
 
 #endif // MAINWINDOW_H
