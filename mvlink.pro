@@ -1,4 +1,4 @@
-QT       += core gui widgets testlib
+QT       += core gui widgets
 
 TARGET = mvlink
 TEMPLATE = app

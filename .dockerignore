@@ -35,3 +35,14 @@ docker-compose.yml
 
 # Other unnecessary files
 .DS_Store
+# Local executables and cross-build outputs
+mvlink
+mvlink-test
+mvlink_test
+*.exe
+*.dll
+dist/
+target/
+
+# Python packaging checks
+__pycache__/

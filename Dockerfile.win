@@ -1,0 +1,54 @@
+# Linux-hosted cross compiler for Windows 11 x64.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG BUILD_JOBS=2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates cmake ninja-build perl python3 curl xz-utils \
+    g++-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use identical Qt sources for the Linux host tools and Windows libraries.
+WORKDIR /opt/src
+RUN curl -fL --retry 3 -o qtbase.tar.xz \
+        https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz \
+    && echo '56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80  qtbase.tar.xz' | sha256sum -c - \
+    && tar -xf qtbase.tar.xz && rm qtbase.tar.xz
+
+WORKDIR /opt/build-host
+RUN /opt/src/qtbase-everywhere-src-6.8.3/configure \
+        -prefix /opt/qt-host -release -opensource -confirm-license \
+        -nomake examples -nomake tests -no-gui -no-opengl \
+    && cmake --build . --parallel ${BUILD_JOBS} \
+    && cmake --install .
+
+COPY docker/mingw-x64.cmake /opt/toolchains/mingw-x64.cmake
+ARG WINDOWS_LINKAGE=shared
+ENV WINDOWS_LINKAGE=${WINDOWS_LINKAGE}
+WORKDIR /opt/build-windows
+RUN case "$WINDOWS_LINKAGE" in \
+        shared) qt_linkage="-shared" ;; \
+        static) qt_linkage="-static -static-runtime" ;; \
+        *) echo "WINDOWS_LINKAGE must be shared or static" >&2; exit 1 ;; \
+    esac \
+    && /opt/src/qtbase-everywhere-src-6.8.3/configure \
+        -prefix /opt/qt-windows -qt-host-path /opt/qt-host \
+        -xplatform win32-g++ -release $qt_linkage \
+        -opensource -confirm-license -nomake examples -nomake tests \
+        -no-opengl -no-feature-vulkan -no-openssl -no-dbus \
+        -no-feature-network -no-feature-sql -no-feature-xml \
+        -no-feature-concurrent -no-feature-testlib -no-feature-printsupport \
+        -no-feature-jpeg -no-feature-gif \
+        -qt-zlib -qt-libpng -qt-freetype -qt-harfbuzz -qt-pcre \
+        -- -DCMAKE_TOOLCHAIN_FILE=/opt/toolchains/mingw-x64.cmake \
+    && cmake --build . --parallel ${BUILD_JOBS} \
+    && cmake --install . \
+    && rm -rf /opt/src /opt/build-host /opt/build-windows
+
+COPY docker/package-windows.py /usr/local/bin/package-windows.py
+COPY docker/build-windows.sh /usr/local/bin/build-windows
+RUN chmod +x /usr/local/bin/build-windows
+WORKDIR /src
+COPY mvlink.pro ./
+COPY src/ ./src/
+ENTRYPOINT ["build-windows"]

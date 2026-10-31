@@ -33,5 +33,22 @@ services:
     environment:
       - QT_QPA_PLATFORM=offscreen
     volumes:
-      - .:/app
-    command: /bin/bash -c "qmake6 mvlink-test.pro && make && ./mvlink-test"
+      - .:/app:ro
+    working_dir: /tmp/mvlink-test
+    command: /bin/bash -c "qmake6 /app/mvlink-test.pro && make && ./mvlink-test"
+
+  windows:
+    image: mvlink-windows-${WINDOWS_LINKAGE:-shared}
+    profiles: [windows]
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.win
+      args:
+        BUILD_JOBS: ${BUILD_JOBS:-2}
+        WINDOWS_LINKAGE: ${WINDOWS_LINKAGE:-shared}
+    environment:
+      BUILD_JOBS: ${BUILD_JOBS:-2}
+    volumes:
+      - .:/src:ro
+      - ./dist/windows/${WINDOWS_LINKAGE:-shared}:/out
