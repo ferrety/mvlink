@@ -4,7 +4,7 @@
 #include <QMainWindow>
 #include <QListWidget>
 #include <QPushButton>
-#include <QLineEdit>
+#include <QComboBox>
 #include <QLabel>
 #include <QTextEdit>
 #include <QDragEnterEvent>
@@ -33,7 +33,7 @@ private:
     friend class TestMainWindow;
 
     QListWidget *fileListWidget;
-    QLineEdit *destinationPathEdit;
+    QComboBox *destinationPathEdit;
     QPushButton *browseButton;
     QPushButton *moveButton;
     QPushButton *clearButton;
@@ -45,6 +45,7 @@ private:
     void createSymbolicLink(const QString &sourcePath, const QString &destPath);
     void logMessage(const QString &message);
     void markFileFailed(QListWidgetItem *item, const QString &reason);
+    void rememberDestination(const QString &path);
 };
 
 #endif // MAINWINDOW_H

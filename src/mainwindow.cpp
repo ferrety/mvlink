@@ -9,6 +9,12 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QScrollBar>
+#include <QSettings>
+
+namespace {
+constexpr int destinationHistoryLimit = 10;
+const char destinationHistoryKey[] = "destinationHistory";
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -38,7 +44,12 @@ void MainWindow::setupUi()
     // Destination path selection
     QHBoxLayout *pathLayout = new QHBoxLayout();
     pathLayout->addWidget(new QLabel("Destination Folder:"));
-    destinationPathEdit = new QLineEdit();
+    destinationPathEdit = new QComboBox();
+    destinationPathEdit->setEditable(true);
+    destinationPathEdit->setInsertPolicy(QComboBox::NoInsert);
+    QSettings settings("mvlink", "mvlink");
+    destinationPathEdit->addItems(settings.value(destinationHistoryKey).toStringList());
+    destinationPathEdit->setCurrentText(QString());
     pathLayout->addWidget(destinationPathEdit);
     browseButton = new QPushButton("Browse...");
     pathLayout->addWidget(browseButton);
@@ -113,14 +124,14 @@ void MainWindow::browseDirectory()
                                                    QFileDialog::ShowDirsOnly);
                                                    
     if (!dir.isEmpty()) {
-        destinationPathEdit->setText(dir);
+        destinationPathEdit->setCurrentText(dir);
         logMessage("Destination folder set to: " + dir);
     }
 }
 
 void MainWindow::handleMove()
 {
-    QString destDir = destinationPathEdit->text();
+    QString destDir = destinationPathEdit->currentText();
     if (destDir.isEmpty()) {
         QMessageBox::warning(this, "Warning", "Please select a destination folder first.");
         logMessage("Error: No destination folder selected");
@@ -181,6 +192,9 @@ void MainWindow::handleMove()
             markFileFailed(item, "Error:" + errorMsg);        }
     }
     QString resultMessage = QString("Operation completed: %1 succeeded, %2 failed").arg(successCount).arg(failCount);
+    if (successCount > 0) {
+        rememberDestination(dir.absolutePath());
+    }
     statusLabel->setText(resultMessage);
     logMessage(resultMessage);
 }
@@ -219,4 +233,21 @@ void MainWindow::markFileFailed(QListWidgetItem *item, const QString &reason)
     failCount++;
     logMessage(reason);
     item->setForeground(Qt::red);
+}
+
+void MainWindow::rememberDestination(const QString &path)
+{
+    const QString normalizedPath = QDir::cleanPath(path);
+    QSettings settings("mvlink", "mvlink");
+    QStringList history = settings.value(destinationHistoryKey).toStringList();
+    history.removeAll(normalizedPath);
+    history.prepend(normalizedPath);
+    while (history.size() > destinationHistoryLimit) {
+        history.removeLast();
+    }
+    settings.setValue(destinationHistoryKey, history);
+
+    destinationPathEdit->clear();
+    destinationPathEdit->addItems(history);
+    destinationPathEdit->setCurrentText(normalizedPath);
 }

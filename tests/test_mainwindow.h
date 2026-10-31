@@ -12,6 +12,7 @@ class TestMainWindow : public QObject
 private:
     QTemporaryDir m_sourceDir;
     QTemporaryDir m_destDir;
+    QTemporaryDir m_settingsDir;
     QString m_testFilePath;
 
 private slots:
@@ -22,6 +23,7 @@ private slots:
 
     void testCreateSymbolicLink();
     void testHandleMove();
+    void testDestinationHistory();
 
 };
 

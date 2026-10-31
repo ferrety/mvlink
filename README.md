@@ -7,9 +7,12 @@ operation log.
 ## Using mvlink
 
 1. Drag files from your file manager into the window.
-2. Click **Browse...** to choose an existing destination folder.
+2. Click **Browse...**, type a destination folder, or select a previously used folder from the destination dropdown.
 3. Click **Move Files**.
 4. Check the status and log for the result. Failed or skipped files remain in the list.
+
+Destinations are saved to history after a successful move. The 10 most recently
+used folders remain available after restarting the app.
 
 If a destination file already exists, mvlink asks before overwriting it. Files
 that are already symbolic links are skipped. **Clear List** removes items from

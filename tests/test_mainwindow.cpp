@@ -5,12 +5,15 @@
 #include <QDir>
 #include <QListWidgetItem>
 #include <QTextDocument>
+#include <QSettings>
 
 void TestMainWindow::initTestCase()
 {
     
     QVERIFY(m_sourceDir.isValid());
     QVERIFY(m_destDir.isValid());
+    QVERIFY(m_settingsDir.isValid());
+    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, m_settingsDir.path());
 }
 
 void TestMainWindow::cleanupTestCase()
@@ -20,6 +23,7 @@ void TestMainWindow::cleanupTestCase()
 
 void TestMainWindow::init()
 {
+    QSettings("mvlink", "mvlink").clear();
     m_testFilePath = m_sourceDir.filePath("testfile.txt");
     QFile testFile(m_testFilePath);
     QVERIFY(testFile.open(QIODevice::WriteOnly | QIODevice::Text));
@@ -81,16 +85,13 @@ void TestMainWindow::testHandleMove()
     // Create MainWindow instance
     MainWindow mainWindow;
     
-    // Setup UI before calling handleMove
-    mainWindow.setupUi();
-    
     // Add test file to the file list
     QListWidgetItem *item = new QListWidgetItem("testfile.txt");
     item->setData(Qt::UserRole, m_testFilePath);
     mainWindow.fileListWidget->addItem(item);
     
     // Set destination path
-    mainWindow.destinationPathEdit->setText(m_destDir.path());
+    mainWindow.destinationPathEdit->setCurrentText(m_destDir.path());
     
     // Call handleMove
     mainWindow.handleMove();
@@ -107,6 +108,40 @@ void TestMainWindow::testHandleMove()
     // Verify that the file list is empty 
     QCOMPARE(mainWindow.fileListWidget->count(), 0);
 
+    MainWindow reopenedWindow;
+    QCOMPARE(reopenedWindow.destinationPathEdit->itemText(0), QDir(m_destDir.path()).absolutePath());
+    QCOMPARE(reopenedWindow.destinationPathEdit->currentText(), QString());
+
     // TODO: Test for failure cases
+}
+
+void TestMainWindow::testDestinationHistory()
+{
+    MainWindow mainWindow;
+    mainWindow.destinationPathEdit->setCurrentText(m_destDir.path());
+    mainWindow.handleMove();
+    QCOMPARE(mainWindow.destinationPathEdit->count(), 0);
+
+    const QString first = QDir(m_destDir.path()).absolutePath();
+    const QString second = QDir(m_sourceDir.path()).absolutePath();
+    mainWindow.rememberDestination(first);
+    QCOMPARE(QSettings("mvlink", "mvlink").value("destinationHistory").toStringList(), QStringList{first});
+    mainWindow.rememberDestination(second);
+    mainWindow.rememberDestination(first);
+
+    MainWindow reopenedWindow;
+    QCOMPARE(reopenedWindow.destinationPathEdit->count(), 2);
+    QCOMPARE(reopenedWindow.destinationPathEdit->itemText(0), first);
+    QCOMPARE(reopenedWindow.destinationPathEdit->itemText(1), second);
+    reopenedWindow.destinationPathEdit->setCurrentIndex(1);
+    QCOMPARE(reopenedWindow.destinationPathEdit->currentText(), second);
+
+    for (int i = 0; i < 11; ++i) {
+        mainWindow.rememberDestination(m_destDir.filePath(QString::number(i)));
+    }
+    MainWindow limitedWindow;
+    QCOMPARE(limitedWindow.destinationPathEdit->count(), 10);
+    QCOMPARE(limitedWindow.destinationPathEdit->itemText(0), m_destDir.filePath("10"));
+    QCOMPARE(limitedWindow.destinationPathEdit->itemText(9), m_destDir.filePath("1"));
 }
 
