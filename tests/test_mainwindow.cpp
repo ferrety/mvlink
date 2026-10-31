@@ -6,6 +6,8 @@
 #include <QListWidgetItem>
 #include <QTextDocument>
 #include <QSettings>
+#include <QFileDevice>
+
 
 void TestMainWindow::initTestCase()
 {
@@ -40,7 +42,7 @@ void TestMainWindow::cleanup()
     
 
     QDir sourceDir(m_sourceDir.path());
-    QStringList entries = sourceDir.entryList(QDir::Files);
+    QStringList entries = sourceDir.entryList(QDir::Files | QDir::System | QDir::Hidden | QDir::NoDotAndDotDot);
     for (const QString &entry : entries) {
         QString filePath = sourceDir.filePath(entry);
         if (QFileInfo(filePath).isSymLink() || QFile::exists(filePath)) {
@@ -49,7 +51,7 @@ void TestMainWindow::cleanup()
     }
     
     QDir destDir(m_destDir.path());
-    entries = destDir.entryList(QDir::Files);
+    entries = destDir.entryList(QDir::Files | QDir::System | QDir::Hidden | QDir::NoDotAndDotDot);
     for (const QString &entry : entries) {
         QFile::remove(destDir.filePath(entry));
     }
@@ -145,3 +147,101 @@ void TestMainWindow::testDestinationHistory()
     QCOMPARE(limitedWindow.destinationPathEdit->itemText(9), m_destDir.filePath("1"));
 }
 
+
+void TestMainWindow::testActions_data()
+{
+    QTest::addColumn<bool>("linkOnly");
+    QTest::addColumn<bool>("hardLink");
+    QTest::newRow("move-symbolic") << false << false;
+    QTest::newRow("move-hard") << false << true;
+    QTest::newRow("link-symbolic") << true << false;
+    QTest::newRow("link-hard") << true << true;
+}
+
+void TestMainWindow::testActions()
+{
+    QFETCH(bool, linkOnly);
+    QFETCH(bool, hardLink);
+    MainWindow window;
+    QVERIFY(!window.hardLinkCheckBox->isChecked());
+    QCOMPARE(window.linkButton->text(), QString("Link"));
+    window.destinationPathEdit->setText(m_destDir.path());
+    window.hardLinkCheckBox->setChecked(hardLink);
+    auto *item = new QListWidgetItem("testfile.txt");
+    item->setData(Qt::UserRole, m_testFilePath);
+    window.fileListWidget->addItem(item);
+
+    if (linkOnly)
+        window.handleLink();
+    else
+        window.handleMove();
+
+    const QString destination = m_destDir.filePath("testfile.txt");
+    QVERIFY(QFileInfo(destination).exists());
+    QVERIFY(QFileInfo(m_testFilePath).exists());
+    QCOMPARE(window.fileListWidget->count(), 0);
+    QCOMPARE(window.failCount, 0);
+    QCOMPARE(QFileInfo(destination).isSymLink(), linkOnly && !hardLink);
+    QCOMPARE(QFileInfo(m_testFilePath).isSymLink(), !linkOnly && !hardLink);
+    if (linkOnly && !hardLink)
+        QCOMPARE(QFileInfo(destination).symLinkTarget(), m_testFilePath);
+    if (!linkOnly && !hardLink)
+        QCOMPARE(QFileInfo(m_testFilePath).symLinkTarget(), destination);
+    if (hardLink) {
+        QFile destFile(destination);
+        QVERIFY(destFile.open(QIODevice::Append));
+        QCOMPARE(destFile.write(" changed"), qint64(8));
+        destFile.close();
+        QFile sourceFile(m_testFilePath);
+        QVERIFY(sourceFile.open(QIODevice::ReadOnly));
+        QCOMPARE(sourceFile.readAll(), QByteArray("Test content changed"));
+    }
+}
+
+void TestMainWindow::testSameDestination()
+{
+    MainWindow window;
+    window.destinationPathEdit->setText(m_sourceDir.path());
+    auto *item = new QListWidgetItem("testfile.txt");
+    item->setData(Qt::UserRole, m_testFilePath);
+    window.fileListWidget->addItem(item);
+    window.handleLink();
+    QVERIFY(QFileInfo(m_testFilePath).isFile());
+    QVERIFY(!QFileInfo(m_testFilePath).isSymLink());
+    QCOMPARE(window.fileListWidget->count(), 1);
+    QCOMPARE(window.failCount, 1);
+}
+
+void TestMainWindow::testHardLinkFailure()
+{
+    // A hard link cannot be created inside a missing parent directory.
+    MainWindow window;
+    QString error;
+    QVERIFY(!window.createHardLink(m_testFilePath,
+                                   m_destDir.filePath("missing/testfile.txt"), &error));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(QFileInfo(m_testFilePath).isFile());
+}
+
+void TestMainWindow::testLongFilenameMove()
+{
+    const QString name(250, QLatin1Char('x'));
+    const QString sourcePath = m_sourceDir.filePath(name);
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write("preserved"), qint64(9));
+    source.close();
+    MainWindow window;
+    window.destinationPathEdit->setText(m_destDir.path());
+    auto *item = new QListWidgetItem(name);
+    item->setData(Qt::UserRole, sourcePath);
+    window.fileListWidget->addItem(item);
+    window.handleMove();
+    QCOMPARE(window.fileListWidget->count(), 0);
+    QCOMPARE(window.failCount, 0);
+    QVERIFY(QFileInfo(sourcePath).isSymLink());
+    QVERIFY(QFileInfo(m_destDir.filePath(name)).isFile());
+    QVERIFY(QFile::remove(sourcePath));
+    QVERIFY(QFile::remove(m_destDir.filePath(name)));
+}
+>>>>>>> 045aa81 (feat: add hard link and link actions)

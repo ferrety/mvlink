@@ -10,6 +10,15 @@
 #include <QMessageBox>
 #include <QScrollBar>
 #include <QSettings>
+#include <QUuid>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <cerrno>
+#include <cstring>
+#endif
 
 namespace {
 constexpr int destinationHistoryLimit = 10;
@@ -24,6 +33,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(browseButton, &QPushButton::clicked, this, &MainWindow::browseDirectory);
     connect(moveButton, &QPushButton::clicked, this, &MainWindow::handleMove);
+    connect(linkButton, &QPushButton::clicked, this, &MainWindow::handleLink);
     connect(clearButton, &QPushButton::clicked, this, &MainWindow::clearList);
     
     setWindowTitle("mvlink - Drag & Drop Files");
@@ -68,8 +78,15 @@ void MainWindow::setupUi()
     clearButton = new QPushButton("Clear List");
     buttonLayout->addWidget(moveButton);
     buttonLayout->addWidget(clearButton);
+    linkButton = new QPushButton("Link");
+    buttonLayout->addWidget(linkButton);
     mainLayout->addLayout(buttonLayout);
     
+    hardLinkCheckBox = new QCheckBox("Create hard links instead of symbolic links");
+    hardLinkCheckBox->setToolTip("Hard links require both folders to be on the same filesystem. "
+                                "Edits through either path affect the same file.");
+    mainLayout->addWidget(hardLinkCheckBox);
+
     // Status label
     statusLabel = new QLabel();
     mainLayout->addWidget(statusLabel);
@@ -132,71 +149,115 @@ void MainWindow::browseDirectory()
 void MainWindow::handleMove()
 {
     QString destDir = destinationPathEdit->currentText();
+    processFiles(false);
+}
+
+void MainWindow::handleLink()
+{
+    processFiles(true);
+}
+
+void MainWindow::processFiles(bool linkOnly)
+{
+    const QString destDir = destinationPathEdit->text();
     if (destDir.isEmpty()) {
         QMessageBox::warning(this, "Warning", "Please select a destination folder first.");
         logMessage("Error: No destination folder selected");
         return;
     }
-    
     QDir dir(destDir);
     if (!dir.exists()) {
         QMessageBox::critical(this, "Error", "Destination folder does not exist.");
         logMessage("Error: Destination folder does not exist");
         return;
     }
-    
+
+    const bool hardLink = hardLinkCheckBox->isChecked();
+    const QString action = linkOnly ? "Link" : "Move";
+    const QString linkType = hardLink ? "hard link" : "symbolic link";
     int successCount = 0;
     failCount = 0;
-    
-    logMessage("Starting move operation to: " + destDir);
-        
+    logMessage(QString("Starting %1 operation (%2) to: %3").arg(action, linkType, destDir));
+
     for (int i = 0; i < fileListWidget->count(); ++i) {
         QListWidgetItem *item = fileListWidget->item(i);
-        QString sourcePath = item->data(Qt::UserRole).toString();
-        QFileInfo fileInfo(sourcePath);
-        
+        const QString sourcePath = QFileInfo(item->data(Qt::UserRole).toString()).absoluteFilePath();
+        const QFileInfo fileInfo(sourcePath);
         if (fileInfo.isSymLink()) {
-            markFileFailed(item, "Skipped: " + fileInfo.fileName() + " (already a symbolic link)"); 
+            markFileFailed(item, "Skipped: " + fileInfo.fileName() + " (already a symbolic link)");
             continue;
         }
-
-        QString destPath = dir.absoluteFilePath(fileInfo.fileName());
-
-        if (QFile::exists(destPath)) {
-            if (QMessageBox::question(this, "File exists", 
-                QString("File %1 already exists in destination. Overwrite?").arg(fileInfo.fileName())) 
+        if (!fileInfo.isFile()) {
+            markFileFailed(item, "Source is not a regular file: " + sourcePath);
+            continue;
+        }
+        const QString destPath = dir.absoluteFilePath(fileInfo.fileName());
+        const QFileInfo destInfo(destPath);
+        if (QDir::cleanPath(sourcePath) == QDir::cleanPath(destPath) ||
+            (destInfo.exists() && destInfo.canonicalFilePath() == fileInfo.canonicalFilePath())) {
+            markFileFailed(item, "Destination resolves to source: " + sourcePath);
+            continue;
+        }
+        if (destInfo.exists() || destInfo.isSymLink()) {
+            if (QMessageBox::question(this, "File exists",
+                QString("File %1 already exists in destination. Overwrite?").arg(fileInfo.fileName()))
                 != QMessageBox::Yes) {
-                    markFileFailed(item, "file exists");
-                    continue;
+                markFileFailed(item, "Skipped: destination file exists");
+                continue;
             }
-            QFile::remove(destPath);
-            logMessage("Removed existing file: " + fileInfo.fileName());
+            QFile destination(destPath);
+            if (!destination.remove()) {
+                markFileFailed(item, "Failed to remove destination: " + destination.errorString());
+                continue;
+            }
         }
 
-        if (QFile::copy(sourcePath, destPath)) {
-            if (QFile::remove(sourcePath)) {
-                createSymbolicLink(destPath, sourcePath);
-                successCount++;
-                logMessage("Moved: " + fileInfo.fileName());
-                delete fileListWidget->takeItem(i);
-                i--;
-            } else {
-                QFile::remove(destPath);
-                QString errorMsg = "Failed to remove source file: " + sourcePath;
-                QMessageBox::warning(this, "Warning", errorMsg);
-                markFileFailed(item, "Error:" + errorMsg);
-            }
+        QString error;
+        bool succeeded = false;
+        if (hardLink) {
+            succeeded = createHardLink(sourcePath, destPath, &error);
+        } else if (linkOnly) {
+            succeeded = createSymbolicLink(sourcePath, destPath, &error);
         } else {
-            QString errorMsg = "Failed to copy file: " + sourcePath;
-            QMessageBox::warning(this, "Warning", errorMsg);
-            markFileFailed(item, "Error:" + errorMsg);        }
+            QFile source(sourcePath);
+            if (!source.copy(destPath)) {
+                error = "Failed to copy file: " + source.errorString();
+            } else {
+                // Keep the original recoverable until its replacement link exists.
+                const QString backupPath = fileInfo.dir().absoluteFilePath(
+                    ".mvlink-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
+                if (!source.rename(backupPath)) {
+                    error = "Failed to back up source: " + source.errorString();
+                    QFile::remove(destPath);
+                } else {
+                    succeeded = createSymbolicLink(destPath, sourcePath, &error);
+                    if (succeeded) {
+                        if (!QFile::remove(backupPath))
+                            logMessage("Could not remove source backup: " + backupPath);
+                    } else if (QFile::rename(backupPath, sourcePath)) {
+                        QFile::remove(destPath);
+                    } else {
+                        error += "; original preserved at " + backupPath;
+                    }
+                }
+            }
+        }
+        if (!succeeded) {
+            markFileFailed(item, QString("%1 failed (%2) for %3: %4")
+                           .arg(action, linkType, sourcePath, error));
+            continue;
+        }
+        ++successCount;
+        logMessage(QString("%1 succeeded (%2): %3").arg(action, linkType, fileInfo.fileName()));
+        delete fileListWidget->takeItem(i--);
     }
-    QString resultMessage = QString("Operation completed: %1 succeeded, %2 failed").arg(successCount).arg(failCount);
+    const QString result = QString("%1 completed: %2 succeeded, %3 failed")
+                           .arg(action).arg(successCount).arg(failCount);
     if (successCount > 0) {
         rememberDestination(dir.absolutePath());
     }
-    statusLabel->setText(resultMessage);
-    logMessage(resultMessage);
+    statusLabel->setText(result);
+    logMessage(result);
 }
 
 void MainWindow::clearList()
@@ -206,17 +267,39 @@ void MainWindow::clearList()
     logMessage("File list cleared");
 }
 
-void MainWindow::createSymbolicLink(const QString &sourcePath, const QString &destPath)
+bool MainWindow::createSymbolicLink(const QString &sourcePath, const QString &destPath, QString *error)
 {
-    #ifdef Q_OS_WIN
-        // TODO: On Windows?
-        QProcess process;
-        process.start("cmd.exe", QStringList() << "/c" << "mklink" << QDir::toNativeSeparators(destPath) << QDir::toNativeSeparators(sourcePath));
-        process.waitForFinished();
-    #else
-        // On Unix/Linux
-        QFile::link(sourcePath, destPath);
-    #endif
+#ifdef Q_OS_WIN
+    QProcess process;
+    process.start("cmd.exe", QStringList() << "/c" << "mklink"
+                  << QDir::toNativeSeparators(destPath) << QDir::toNativeSeparators(sourcePath));
+    const bool finished = process.waitForFinished();
+    const bool ok = finished && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
+    if (!ok && error)
+        *error = finished ? QString::fromLocal8Bit(process.readAllStandardError()) : process.errorString();
+#else
+    QFile source(sourcePath);
+    const bool ok = source.link(destPath);
+    if (!ok && error)
+        *error = source.errorString();
+#endif
+    return ok;
+}
+
+bool MainWindow::createHardLink(const QString &sourcePath, const QString &destPath, QString *error)
+{
+#ifdef Q_OS_WIN
+    const bool ok = CreateHardLinkW(reinterpret_cast<LPCWSTR>(destPath.utf16()),
+                                    reinterpret_cast<LPCWSTR>(sourcePath.utf16()), nullptr);
+    if (!ok && error)
+        *error = QString("Windows error %1 (hard links require the same filesystem)").arg(GetLastError());
+#else
+    const bool ok = ::link(QFile::encodeName(sourcePath).constData(),
+                           QFile::encodeName(destPath).constData()) == 0;
+    if (!ok && error)
+        *error = QString::fromLocal8Bit(std::strerror(errno));
+#endif
+    return ok;
 }
 
 void MainWindow::logMessage(const QString &message)

@@ -5,6 +5,8 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QLineEdit>
 #include <QLabel>
 #include <QTextEdit>
 #include <QDragEnterEvent>
@@ -27,6 +29,7 @@ protected:
 private slots:
     void browseDirectory();
     void handleMove();
+    void handleLink();
     void clearList();
 
 private:
@@ -37,12 +40,16 @@ private:
     QPushButton *browseButton;
     QPushButton *moveButton;
     QPushButton *clearButton;
+    QPushButton *linkButton;
+    QCheckBox *hardLinkCheckBox;
     QLabel *statusLabel;
     QTextEdit *logView;
     int failCount = 0;
     
     void setupUi();
-    void createSymbolicLink(const QString &sourcePath, const QString &destPath);
+    void processFiles(bool linkOnly);
+    bool createSymbolicLink(const QString &sourcePath, const QString &destPath, QString *error = nullptr);
+    bool createHardLink(const QString &sourcePath, const QString &destPath, QString *error = nullptr);
     void logMessage(const QString &message);
     void markFileFailed(QListWidgetItem *item, const QString &reason);
     void rememberDestination(const QString &path);

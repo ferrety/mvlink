@@ -1,6 +1,7 @@
 # mvlink
 
-Move files to another folder and leave symbolic links at their original locations.
+Move files to another folder and leave links at their original locations, or create
+links in a destination folder while keeping the original files in place.
 mvlink provides a Qt interface with drag and drop, a destination picker, and an
 operation log.
 
@@ -8,8 +9,18 @@ operation log.
 
 1. Drag files from your file manager into the window.
 2. Click **Browse...**, type a destination folder, or select a previously used folder from the destination dropdown.
-3. Click **Move Files**.
-4. Check the status and log for the result. Failed or skipped files remain in the list.
+3. Leave **Create hard links instead of symbolic links** unchecked for symbolic
+   links, or check it for hard links.
+4. Click **Move Files** to place the files in the destination and leave links at
+   their original paths. Click **Link** to keep the original files and create
+   links in the destination.
+5. Check the status and log for the result. Failed or skipped files remain in the list.
+
+Hard links require the source and destination to be on the same filesystem.
+Both paths share the same file content, so edits through either path affect the
+other. A failed hard-link operation preserves the original file and stays in
+the list for retry.
+>>>>>>> 045aa81 (feat: add hard link and link actions)
 
 Destinations are saved to history after a successful move. The 10 most recently
 used folders remain available after restarting the app.
