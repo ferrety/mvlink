@@ -5,6 +5,10 @@ links in a destination folder while keeping the original files in place.
 mvlink provides a Qt interface with drag and drop, a destination picker, and an
 operation log.
 
+The project uses semantic versions (`MAJOR.MINOR.PATCH`), starting at `1.0.0`.
+Run `mvlink --version` (or `mvlink -v`) to print the version without opening a
+window or requiring a display.
+
 ## Using mvlink
 
 1. Drag files from your file manager into the window.
@@ -114,7 +118,51 @@ docker compose run --build --rm test
 The tests run without a display and build in a separate directory inside the
 container. The command returns a nonzero exit status if the build or tests fail.
 
+After building the application, run the packaging and headless version checks:
+
+```bash
+docker compose run --rm build python3 -m unittest discover -s tests -p 'test_*.py'
+docker compose run --rm build python3 tests/test_version.py ./mvlink
+```
+
+## Building for Windows 11 (x64) with prebuilt Qt
+
+The recommended Windows build downloads prebuilt Qt libraries and compiles only
+mvlink. Use **Qt 6.8.3 for MinGW 64-bit** and its matching **MinGW 13.1.0**
+compiler, installed with the Qt Online Installer. Select both components, or
+install them from PowerShell with Python and aqtinstall:
+
+```powershell
+py -m pip install aqtinstall==3.3.0
+py -m aqt install-qt windows desktop 6.8.3 win64_mingw -O C:\Qt
+py -m aqt install-tool windows desktop tools_mingw1310 qt.tools.win64_mingw1310 -O C:\Qt
+```
+
+From the project directory, build and package using PowerShell:
+
+```powershell
+./scripts/build-windows.ps1 -QtRoot C:\Qt\6.8.3\mingw_64 -MingwRoot C:\Qt\Tools\mingw1310_64
+```
+
+The script builds in `build/windows-native/` and writes the standalone shared
+package to `dist/windows/native-shared/`. It uses Qt's `windeployqt` to include
+the required libraries, plugins, and compiler runtime. Keep the entire package
+together when distributing or running it.
+
+Add `-Test` to build and run the offscreen Qt tests and verify the staged
+application's version, Windows metadata, and GUI startup with the SDK removed
+from `PATH`. Symbolic-link tests require Developer Mode or an elevated shell.
+The SDK directories may be omitted when `QT_ROOT_DIR` identifies Qt and the
+matching compiler's `bin` directory is already on `PATH`.
+
+GitHub Actions uses the same Qt/compiler versions and build script on a
+Windows runner, with cached SDK downloads.
+
 ## Cross-building for Windows 11 (x64)
+
+This alternative builds on Linux using Docker and compiles Qt from source.
+It also supports static builds; the prebuilt Windows workflow above uses shared
+libraries.
 
 Requirements:
 
@@ -150,3 +198,49 @@ docker run --rm -v "${PWD}/dist/windows/shared:/out" mvlink-windows-shared
 For a static build, replace `shared` with `static` in these commands.
 The first build takes considerable time; later builds reuse Docker's cache.
 The commands use a POSIX shell, such as Bash or a WSL shell.
+
+## Versions and releases
+
+[`version.txt`](version.txt) is the application version source. qmake reads it
+through `version.pri` for the runtime version and Windows executable metadata.
+Builds from source archives work without Git metadata. Normal release bumps are
+managed by Release Please rather than editing the version manually.
+
+Use Conventional Commits for changes merged into `master` (including squash
+merge titles):
+
+- `fix: ...` produces a patch release, such as `1.0.0` to `1.0.1`.
+- `feat: ...` produces a minor release, such as `1.0.0` to `1.1.0`.
+- `feat!: ...` or a `BREAKING CHANGE:` footer produces a major release,
+  such as `1.0.0` to `2.0.0`.
+- Documentation, test, and maintenance commits alone do not trigger releases.
+
+After Linux and Windows checks pass on `master`, Release Please opens or updates
+a release PR containing `version.txt`, `CHANGELOG.md`, and its release manifest.
+The first release PR proposes **1.0.0** and collects the existing conventional
+commit history. Review and merge that PR to create the `v1.0.0` tag and GitHub
+Release. Later release PRs calculate their versions automatically.
+
+In **Settings > Actions > General**, enable **Allow GitHub Actions to create
+and approve pull requests**. The release job uses the repository's built-in
+`GITHUB_TOKEN`, with contents, pull-request, and issue write permissions; no
+additional secret is required. PRs created with that token do not automatically
+trigger PR workflows. The merged release commit is checked by the `master` push
+workflow before publication. If branch protection requires PR checks on the
+generated release PR, a maintainer can close and reopen that PR to trigger them.
+
+Each release is built from its exact tag and receives:
+
+- `mvlink-<version>-linux-x86_64.tar.gz`: executable, launcher, icon, license,
+  and instructions. Built on Ubuntu 24.04; requires matching Qt 6 runtime
+  libraries (`sudo apt install libqt6widgets6` on Ubuntu 24.04).
+- `mvlink-<version>-windows-x86_64.zip`: complete shared Windows package,
+  including Qt/compiler DLLs, plugins, license, and version file.
+- `SHA256SUMS`: checksums for both archives.
+
+Release notes and GitHub's source archives are available immediately; binary
+assets are attached after both packaging jobs succeed. If packaging fails,
+open **Actions > Build and release > Run workflow**, select `master`, and enter
+the existing release tag (for example `v1.0.0`). This rebuilds both packages
+from that tag and replaces their assets and checksums without creating a new
+version. The workflow rejects nonexistent releases or tag/version mismatches.

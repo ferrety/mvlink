@@ -50,6 +50,8 @@ CMakeLists.txt.user*
 
 # Binary files
 FileMover
+/mvlink
+/mvlink-test
 *.exe
 
 # Build directories
@@ -78,6 +80,7 @@ Thumbs.db
 /dist/
 
 !docker/build-windows.sh
+!scripts/build-windows.ps1
 
 # Python packaging checks
 __pycache__/

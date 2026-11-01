@@ -1,10 +1,20 @@
 #include "mainwindow.h"
 #include <QApplication>
 #include <QIcon>
+#include <cstdio>
+#include <cstring>
 
 int main(int argc, char *argv[])
 {
+    // QApplication needs a display; version queries must also work headlessly.
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {
+            std::printf("mvlink %s\n", MVLINK_VERSION);
+            return 0;
+        }
+    }
     QApplication mainApp(argc, argv);
+    mainApp.setApplicationVersion(QStringLiteral(MVLINK_VERSION));
     mainApp.setDesktopFileName("mvlink");
     QIcon appIcon;
     for (int size : {16, 24, 32, 48, 64, 128, 256, 512}) {

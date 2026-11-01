@@ -1,0 +1,180 @@
+name: Build and release
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild (for example v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux-check:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test with Docker
+        run: |
+          docker compose run --build --rm build
+          docker compose run --build --rm test
+          docker compose run --rm build python3 -m unittest discover -s tests -p 'test_*.py'
+          docker compose run --rm build python3 tests/test_version.py ./mvlink
+
+  windows-check:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_mingw
+          tools: 'tools_mingw1310,qt.tools.win64_mingw1310'
+          cache: true
+      - name: Build, test, and verify standalone package
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Test
+
+  release:
+    if: github.event_name == 'push'
+    needs: [linux-check, windows-check]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: release-please-master
+      cancel-in-progress: false
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          target-branch: master
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  prepare:
+    needs: release
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'workflow_dispatch' || needs.release.outputs.created == 'true')
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Select and validate existing release
+        id: tag
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          gh release view "$TAG" >/dev/null
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  package-linux:
+    needs: prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+      - name: Check version, build, and smoke-test
+        run: |
+          test "$TAG" = "v$(cat version.txt)"
+          docker compose run --build --rm build
+          docker compose run --rm build python3 tests/test_version.py ./mvlink
+      - name: Create archive
+        run: |
+          name="mvlink-${TAG#v}-linux-x86_64"
+          mkdir -p "dist/release/$name"
+          install -m755 mvlink "dist/release/$name/"
+          cp assets/mvlink.desktop assets/mvlink.png LICENSE version.txt README.md "dist/release/$name/"
+          printf '%s\n' 'Linux x86_64, built on Ubuntu 24.04.' \
+            'Requires Qt 6: sudo apt install libqt6widgets6' \
+            'Keep the included license. See README.md for launcher installation.' \
+            > "dist/release/$name/INSTALL.txt"
+          tar -C dist/release -czf "dist/$name.tar.gz" "$name"
+          tar -tzf "dist/$name.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  package-windows:
+    needs: prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: windows-2022
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_mingw
+          tools: 'tools_mingw1310,qt.tools.win64_mingw1310'
+          cache: true
+      - name: Check version and build standalone package
+        shell: pwsh
+        run: |
+          $version = (Get-Content version.txt -Raw).Trim()
+          if ($env:TAG -ne "v$version") { throw 'Tag and source version differ' }
+          ./scripts/build-windows.ps1 -Test
+          Compress-Archive -Path dist/windows/native-shared/* -DestinationPath "dist/mvlink-$version-windows-x86_64.zip"
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path "dist/mvlink-$version-windows-x86_64.zip"))
+          try {
+            foreach ($file in @('mvlink.exe', 'Qt6Core.dll', 'platforms/qwindows.dll', 'LICENSE')) {
+              if (-not ($zip.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq $file })) {
+                throw "Archive missing $file"
+              }
+            }
+          } finally { $zip.Dispose() }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: dist/*.zip
+          if-no-files-found: error
+
+  upload:
+    needs: [prepare, package-linux, package-windows]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      needs.package-linux.result == 'success' && needs.package-windows.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-release'
+          merge-multiple: true
+          path: dist
+      - name: Attach archives and checksums
+        working-directory: dist
+        run: |
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          gh release upload "$TAG" *.tar.gz *.zip SHA256SUMS --clobber

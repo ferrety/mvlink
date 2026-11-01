@@ -2,6 +2,7 @@ QT       += core gui widgets
 
 TARGET = mvlink
 TEMPLATE = app
+include(version.pri)
 
 SOURCES += \
     src/main.cpp \
