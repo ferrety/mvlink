@@ -71,20 +71,23 @@ void MainWindow::setupUi()
     
     // Destination path selection
     QHBoxLayout *pathLayout = new QHBoxLayout();
-    pathLayout->addWidget(new QLabel("Destination Folder:"));
     destinationPathEdit = new QComboBox();
+    destinationPathEdit->setAccessibleName("Destination Folder");
+    destinationPathEdit->setToolTip("Type a destination folder or choose one from your saved history.");
     destinationPathEdit->setEditable(true);
     destinationPathEdit->setInsertPolicy(QComboBox::NoInsert);
     UserSettings settings;
     destinationPathEdit->addItems(settings.value(destinationHistoryKey).toStringList());
     destinationPathEdit->setCurrentText(QString());
-    pathLayout->addWidget(destinationPathEdit);
+    pathLayout->addWidget(destinationPathEdit, 1);
     browseButton = new QPushButton("Browse...");
+    browseButton->setToolTip("Open the folder picker to choose a destination.");
     pathLayout->addWidget(browseButton);
     mainLayout->addLayout(pathLayout);
     
     // File list
     fileListWidget = new QListWidget();
+    fileListWidget->setToolTip("Drop files here to move them or create links. Failed or skipped files remain for retry.");
     fileListWidget->setDragEnabled(false);
     fileListWidget->setAcceptDrops(true);
     fileListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -93,16 +96,20 @@ void MainWindow::setupUi()
     // Buttons
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     moveButton = new QPushButton("Move Files");
+    moveButton->setToolTip("Place files in the destination and leave links at their original paths, using the selected link type.");
     clearButton = new QPushButton("Clear List");
+    clearButton->setToolTip("Remove all files from this list without changing files on disk.");
     buttonLayout->addWidget(moveButton);
     buttonLayout->addWidget(clearButton);
     linkButton = new QPushButton("Link");
+    linkButton->setToolTip("Keep the original files and create links in the destination, using the selected link type.");
     buttonLayout->addWidget(linkButton);
     mainLayout->addLayout(buttonLayout);
     
     hardLinkCheckBox = new QCheckBox("Create hard links instead of symbolic links");
-    hardLinkCheckBox->setToolTip("Hard links require both folders to be on the same filesystem. "
-                                "Edits through either path affect the same file.");
+    hardLinkCheckBox->setToolTip("Use hard links when checked, or symbolic links when unchecked. "
+                                "Hard links require both folders to be on the same filesystem. "
+                                "Edits through either path affect the same file. This choice is saved for next session.");
     hardLinkCheckBox->setChecked(settings.value(hardLinkKey, false).toBool());
     connect(hardLinkCheckBox, &QCheckBox::toggled, this, [](bool checked) {
         UserSettings settings;
@@ -113,13 +120,16 @@ void MainWindow::setupUi()
 
     // Status label
     statusLabel = new QLabel();
+    statusLabel->setToolTip("Shows the current file count or the result of the latest operation.");
     mainLayout->addWidget(statusLabel);
     
     // Log view
     QLabel *logLabel = new QLabel("Log:");
+    logLabel->setToolTip("Details of file operations, including skipped files and errors.");
     mainLayout->addWidget(logLabel);
 
     logView = new QTextEdit();
+    logView->setToolTip("Review operation details and error messages here. You can select and copy the text.");
     logView->setReadOnly(true);
     logView->setLineWrapMode(QTextEdit::WidgetWidth);
     logView->setMaximumHeight(80); // Show approximately 2-3 lines by default
@@ -147,6 +157,7 @@ void MainWindow::dropEvent(QDropEvent *event)
             
             if (fileInfo.isFile()) {
                 QListWidgetItem *item = new QListWidgetItem(fileInfo.fileName());
+                item->setToolTip(filePath);
                 item->setData(Qt::UserRole, filePath);
                 fileListWidget->addItem(item);
             }
