@@ -23,6 +23,24 @@
 namespace {
 constexpr int destinationHistoryLimit = 10;
 const char destinationHistoryKey[] = "destinationHistory";
+const char hardLinkKey[] = "hardLink";
+
+class UserSettings : public QSettings
+{
+public:
+    UserSettings() : QSettings(QSettings::IniFormat, QSettings::UserScope, "mvlink", "mvlink")
+    {
+        setFallbacksEnabled(false);
+        if (!contains(destinationHistoryKey)) {
+            QSettings legacy(QSettings::NativeFormat, QSettings::UserScope, "mvlink", "mvlink");
+            legacy.setFallbacksEnabled(false);
+            if (legacy.contains(destinationHistoryKey)) {
+                setValue(destinationHistoryKey, legacy.value(destinationHistoryKey));
+                sync();
+            }
+        }
+    }
+};
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -57,7 +75,7 @@ void MainWindow::setupUi()
     destinationPathEdit = new QComboBox();
     destinationPathEdit->setEditable(true);
     destinationPathEdit->setInsertPolicy(QComboBox::NoInsert);
-    QSettings settings("mvlink", "mvlink");
+    UserSettings settings;
     destinationPathEdit->addItems(settings.value(destinationHistoryKey).toStringList());
     destinationPathEdit->setCurrentText(QString());
     pathLayout->addWidget(destinationPathEdit);
@@ -85,6 +103,12 @@ void MainWindow::setupUi()
     hardLinkCheckBox = new QCheckBox("Create hard links instead of symbolic links");
     hardLinkCheckBox->setToolTip("Hard links require both folders to be on the same filesystem. "
                                 "Edits through either path affect the same file.");
+    hardLinkCheckBox->setChecked(settings.value(hardLinkKey, false).toBool());
+    connect(hardLinkCheckBox, &QCheckBox::toggled, this, [](bool checked) {
+        UserSettings settings;
+        settings.setValue(hardLinkKey, checked);
+        settings.sync();
+    });
     mainLayout->addWidget(hardLinkCheckBox);
 
     // Status label
@@ -159,7 +183,7 @@ void MainWindow::handleLink()
 
 void MainWindow::processFiles(bool linkOnly)
 {
-    const QString destDir = destinationPathEdit->text();
+    const QString destDir = destinationPathEdit->currentText();
     if (destDir.isEmpty()) {
         QMessageBox::warning(this, "Warning", "Please select a destination folder first.");
         logMessage("Error: No destination folder selected");
@@ -321,7 +345,7 @@ void MainWindow::markFileFailed(QListWidgetItem *item, const QString &reason)
 void MainWindow::rememberDestination(const QString &path)
 {
     const QString normalizedPath = QDir::cleanPath(path);
-    QSettings settings("mvlink", "mvlink");
+    UserSettings settings;
     QStringList history = settings.value(destinationHistoryKey).toStringList();
     history.removeAll(normalizedPath);
     history.prepend(normalizedPath);

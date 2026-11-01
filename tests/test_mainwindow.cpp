@@ -15,7 +15,8 @@ void TestMainWindow::initTestCase()
     QVERIFY(m_sourceDir.isValid());
     QVERIFY(m_destDir.isValid());
     QVERIFY(m_settingsDir.isValid());
-    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, m_settingsDir.path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
+    QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, m_settingsDir.filePath("legacy"));
 }
 
 void TestMainWindow::cleanupTestCase()
@@ -25,7 +26,10 @@ void TestMainWindow::cleanupTestCase()
 
 void TestMainWindow::init()
 {
-    QSettings("mvlink", "mvlink").clear();
+    QSettings(QSettings::IniFormat, QSettings::UserScope, "mvlink", "mvlink").clear();
+#ifndef Q_OS_WIN
+    QSettings(QSettings::NativeFormat, QSettings::UserScope, "mvlink", "mvlink").clear();
+#endif
     m_testFilePath = m_sourceDir.filePath("testfile.txt");
     QFile testFile(m_testFilePath);
     QVERIFY(testFile.open(QIODevice::WriteOnly | QIODevice::Text));
@@ -127,7 +131,7 @@ void TestMainWindow::testDestinationHistory()
     const QString first = QDir(m_destDir.path()).absolutePath();
     const QString second = QDir(m_sourceDir.path()).absolutePath();
     mainWindow.rememberDestination(first);
-    QCOMPARE(QSettings("mvlink", "mvlink").value("destinationHistory").toStringList(), QStringList{first});
+    QCOMPARE(QSettings(QSettings::IniFormat, QSettings::UserScope, "mvlink", "mvlink").value("destinationHistory").toStringList(), QStringList{first});
     mainWindow.rememberDestination(second);
     mainWindow.rememberDestination(first);
 
@@ -165,7 +169,7 @@ void TestMainWindow::testActions()
     MainWindow window;
     QVERIFY(!window.hardLinkCheckBox->isChecked());
     QCOMPARE(window.linkButton->text(), QString("Link"));
-    window.destinationPathEdit->setText(m_destDir.path());
+    window.destinationPathEdit->setEditText(m_destDir.path());
     window.hardLinkCheckBox->setChecked(hardLink);
     auto *item = new QListWidgetItem("testfile.txt");
     item->setData(Qt::UserRole, m_testFilePath);
@@ -201,7 +205,7 @@ void TestMainWindow::testActions()
 void TestMainWindow::testSameDestination()
 {
     MainWindow window;
-    window.destinationPathEdit->setText(m_sourceDir.path());
+    window.destinationPathEdit->setEditText(m_sourceDir.path());
     auto *item = new QListWidgetItem("testfile.txt");
     item->setData(Qt::UserRole, m_testFilePath);
     window.fileListWidget->addItem(item);
@@ -232,7 +236,7 @@ void TestMainWindow::testLongFilenameMove()
     QCOMPARE(source.write("preserved"), qint64(9));
     source.close();
     MainWindow window;
-    window.destinationPathEdit->setText(m_destDir.path());
+    window.destinationPathEdit->setEditText(m_destDir.path());
     auto *item = new QListWidgetItem(name);
     item->setData(Qt::UserRole, sourcePath);
     window.fileListWidget->addItem(item);
@@ -244,4 +248,49 @@ void TestMainWindow::testLongFilenameMove()
     QVERIFY(QFile::remove(sourcePath));
     QVERIFY(QFile::remove(m_destDir.filePath(name)));
 }
->>>>>>> 045aa81 (feat: add hard link and link actions)
+
+void TestMainWindow::testHardLinkPreference()
+{
+    {
+        MainWindow window;
+        QVERIFY(!window.hardLinkCheckBox->isChecked());
+        window.hardLinkCheckBox->setChecked(true);
+        QSettings saved(QSettings::IniFormat, QSettings::UserScope, "mvlink", "mvlink");
+        QVERIFY(saved.value("hardLink").toBool());
+        QCOMPARE(saved.status(), QSettings::NoError);
+        QVERIFY(QFileInfo(saved.fileName()).isFile());
+        QVERIFY(saved.fileName().startsWith(m_settingsDir.path() + "/"));
+    }
+    {
+        MainWindow reopened;
+        QVERIFY(reopened.hardLinkCheckBox->isChecked());
+        reopened.hardLinkCheckBox->setChecked(false);
+    }
+    MainWindow reopened;
+    QVERIFY(!reopened.hardLinkCheckBox->isChecked());
+}
+
+void TestMainWindow::testLegacyHistoryMigration()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Native Windows settings use the registry and cannot be redirected with setPath");
+#else
+    QSettings legacy(QSettings::NativeFormat, QSettings::UserScope, "mvlink", "mvlink");
+    const QStringList history{m_destDir.path()};
+    legacy.setValue("destinationHistory", history);
+    legacy.sync();
+    {
+        MainWindow window;
+        QCOMPARE(window.destinationPathEdit->itemText(0), history.first());
+    }
+    QSettings saved(QSettings::IniFormat, QSettings::UserScope, "mvlink", "mvlink");
+    QCOMPARE(saved.value("destinationHistory").toStringList(), history);
+    QCOMPARE(legacy.value("destinationHistory").toStringList(), history);
+
+    const QStringList replacement{m_sourceDir.path()};
+    saved.setValue("destinationHistory", replacement);
+    saved.sync();
+    MainWindow reopened;
+    QCOMPARE(reopened.destinationPathEdit->itemText(0), replacement.first());
+#endif
+}

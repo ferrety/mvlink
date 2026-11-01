@@ -1,0 +1,1 @@
+Follow the build and test instructions in `./README.md

@@ -20,7 +20,16 @@ Hard links require the source and destination to be on the same filesystem.
 Both paths share the same file content, so edits through either path affect the
 other. A failed hard-link operation preserves the original file and stays in
 the list for retry.
->>>>>>> 045aa81 (feat: add hard link and link actions)
+
+The hard-link checkbox is saved whenever it changes and restored next session.
+Preferences and destination history use a per-user INI file selected by Qt:
+
+- Linux: `$XDG_CONFIG_HOME/mvlink/mvlink.ini`, or `~/.config/mvlink/mvlink.ini`.
+- Windows: `%APPDATA%\mvlink\mvlink.ini`.
+- macOS: `~/Library/Preferences/mvlink/mvlink.ini`.
+
+Existing destination history is copied from native settings when the INI file
+has no history; the original settings are preserved.
 
 Destinations are saved to history after a successful move. The 10 most recently
 used folders remain available after restarting the app.
