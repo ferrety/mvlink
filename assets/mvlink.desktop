@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=mvlink
+Comment=Move files and create symbolic or hard links
+Exec=mvlink
+Icon=mvlink
+Terminal=false
+Categories=Utility;FileTools;
+StartupWMClass=mvlink

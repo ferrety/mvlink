@@ -51,4 +51,5 @@ RUN chmod +x /usr/local/bin/build-windows
 WORKDIR /src
 COPY mvlink.pro ./
 COPY src/ ./src/
+COPY assets/ ./assets/
 ENTRYPOINT ["build-windows"]

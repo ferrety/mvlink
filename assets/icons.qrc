@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file>mvlink-16.png</file>
+        <file>mvlink-24.png</file>
+        <file>mvlink-32.png</file>
+        <file>mvlink-48.png</file>
+        <file>mvlink-64.png</file>
+        <file>mvlink-128.png</file>
+        <file alias="mvlink-256.png">mvlink.png</file>
+        <file>mvlink-512.png</file>
+    </qresource>
+</RCC>

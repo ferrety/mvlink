@@ -54,6 +54,20 @@ docker compose run --build --rm build
 The executable is written to `./mvlink`. Running it directly on the host requires
 the matching Qt 6 runtime libraries.
 
+The window icon is embedded in the executable on Linux and Windows; Windows
+Explorer also uses the embedded icon. To add mvlink to your Linux application
+menu for the current user, install the launcher and icon alongside the executable:
+
+```bash
+install -Dm755 mvlink "$HOME/.local/bin/mvlink"
+install -Dm644 assets/mvlink.desktop "$HOME/.local/share/applications/mvlink.desktop"
+install -Dm644 assets/mvlink.png "$HOME/.local/share/icons/hicolor/256x256/apps/mvlink.png"
+```
+
+Ensure `$HOME/.local/bin` is on your `PATH`. Native qmake builds also support
+`qmake6 mvlink.pro PREFIX="$HOME/.local"`, followed by `make` and `make install`.
+Icon artwork and regeneration instructions are in [assets/README.md](assets/README.md).
+
 ### Running the application in Docker
 
 You also need an X11 server and `xhost` on the host. Allow the container to use
