@@ -11,6 +11,15 @@
 #include <QScrollBar>
 #include <QSettings>
 #include <QUuid>
+#include <QFrame>
+#include <QToolButton>
+#include <QStyledItemDelegate>
+#include <QPainter>
+#include <QStyleFactory>
+#include <QApplication>
+#include <QAbstractItemModel>
+#include <QDragMoveEvent>
+#include <QDragLeaveEvent>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -24,6 +33,64 @@ namespace {
 constexpr int destinationHistoryLimit = 10;
 const char destinationHistoryKey[] = "destinationHistory";
 const char hardLinkKey[] = "hardLink";
+constexpr int failureRole = Qt::UserRole + 1;
+
+class FileDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const override
+    {
+        return QSize(120, qMax(64, option.fontMetrics.height() * 2 + 24));
+    }
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem panel(option);
+        initStyleOption(&panel, index);
+        panel.text.clear();
+        panel.icon = QIcon();
+        const QStyle *style = option.widget->style();
+        style->drawControl(QStyle::CE_ItemViewItem, &panel, painter, option.widget);
+        const bool failed = !index.data(failureRole).toString().isEmpty();
+        const bool selected = option.state & QStyle::State_Selected;
+        const QColor primary = selected ? option.palette.highlightedText().color() : QColor("#182230");
+        const QColor secondary = selected ? primary : QColor("#526174");
+        const QRect area = option.rect.adjusted(12, 8, -12, -8);
+        const QRect iconRect(area.left(), area.center().y() - 12, 24, 24);
+        if (failed) {
+            // Draw the warning directly so stripped Windows packages need no icon plugin.
+            painter->save();
+            painter->setRenderHint(QPainter::Antialiasing);
+            painter->setPen(QPen(QColor("#B54708"), 1.5));
+            painter->setBrush(QColor("#FEF0C7"));
+            painter->drawPolygon(QPolygon{iconRect.topLeft() + QPoint(12, 2),
+                iconRect.bottomLeft() + QPoint(1, -2), iconRect.bottomRight() + QPoint(-1, -2)});
+            QFont warningFont(option.font);
+            warningFont.setBold(true);
+            painter->setFont(warningFont);
+            painter->drawText(iconRect.adjusted(0, 4, 0, 0), Qt::AlignCenter, "!");
+            painter->restore();
+        } else {
+            style->standardIcon(QStyle::SP_FileIcon).paint(painter, iconRect);
+        }
+        const int left = area.left() + 38;
+        const int width = qMax(0, area.right() - left);
+        painter->save();
+        QFont font(option.font);
+        font.setBold(true);
+        painter->setFont(font);
+        painter->setPen(failed && !selected ? QColor("#B42318") : primary);
+        painter->drawText(QRect(left, area.top(), width, area.height() / 2), Qt::AlignVCenter,
+                          QFontMetrics(font).elidedText(index.data().toString(), Qt::ElideMiddle, width));
+        painter->setFont(option.font);
+        painter->setPen(secondary);
+        const QString folder = QDir::toNativeSeparators(QFileInfo(index.data(Qt::UserRole).toString()).absolutePath());
+        painter->drawText(QRect(left, area.center().y(), width, area.height() / 2), Qt::AlignVCenter,
+                          option.fontMetrics.elidedText(folder, Qt::ElideMiddle, width));
+        painter->restore();
+    }
+};
 
 class UserSettings : public QSettings
 {
@@ -60,22 +127,64 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    // The list model emits modelReset while its child widgets are destroyed.
+    disconnect(fileListWidget->model(), nullptr, this, nullptr);
+    fileListWidget->viewport()->removeEventFilter(this);
 }
 
 void MainWindow::setupUi()
 {
-    QWidget *centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
-    
-    QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
-    
-    // Destination path selection
-    QHBoxLayout *pathLayout = new QHBoxLayout();
+    // QWidget::setStyle does not propagate to child controls.
+    if (QApplication::style()->objectName() != "fusion")
+        QApplication::setStyle(QStyleFactory::create("Fusion"));
+    QStyle *fusion = QApplication::style();
+    QPalette colors = fusion->standardPalette();
+    colors.setColor(QPalette::Window, QColor("#F4F6FA"));
+    colors.setColor(QPalette::Base, Qt::white);
+    colors.setColor(QPalette::Text, QColor("#182230"));
+    colors.setColor(QPalette::WindowText, QColor("#182230"));
+    colors.setColor(QPalette::Highlight, QColor("#2563EB"));
+    colors.setColor(QPalette::HighlightedText, Qt::white);
+    setPalette(colors);
+    QFile theme(":/styles/theme.qss");
+    if (theme.open(QIODevice::ReadOnly))
+        setStyleSheet(QString::fromUtf8(theme.readAll()));
+
+    QWidget *central = new QWidget(this);
+    central->setObjectName("central");
+    setCentralWidget(central);
+    auto *layout = new QVBoxLayout(central);
+    layout->setContentsMargins(24, 24, 24, 24);
+    layout->setSpacing(12);
+
+    auto *header = new QHBoxLayout();
+    auto *brand = new QLabel();
+    brand->setPixmap(QIcon(":/icons/mvlink-256.png").pixmap(QSize(48, 48), devicePixelRatioF()));
+    brand->setToolTip("mvlink — move files and create links");
+    header->addWidget(brand);
+    auto *titles = new QVBoxLayout();
+    titles->setSpacing(2);
+    auto *title = new QLabel("mvlink");
+    title->setObjectName("title");
+    title->setToolTip("Move files and create links");
+    auto *subtitle = new QLabel("Move files and create links");
+    subtitle->setObjectName("muted");
+    subtitle->setToolTip("Move files to a destination or keep them in place and create links.");
+    titles->addWidget(title);
+    titles->addWidget(subtitle);
+    header->addLayout(titles);
+    header->addStretch();
+    layout->addLayout(header);
+
+    auto *pathLayout = new QHBoxLayout();
+    pathLayout->setSpacing(8);
     destinationPathEdit = new QComboBox();
     destinationPathEdit->setAccessibleName("Destination Folder");
     destinationPathEdit->setToolTip("Type a destination folder or choose one from your saved history.");
     destinationPathEdit->setEditable(true);
     destinationPathEdit->setInsertPolicy(QComboBox::NoInsert);
+    destinationPathEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    destinationPathEdit->setMinimumWidth(0);
     UserSettings settings;
     destinationPathEdit->addItems(settings.value(destinationHistoryKey).toStringList());
     destinationPathEdit->setCurrentText(QString());
@@ -83,70 +192,182 @@ void MainWindow::setupUi()
     browseButton = new QPushButton("Browse...");
     browseButton->setToolTip("Open the folder picker to choose a destination.");
     pathLayout->addWidget(browseButton);
-    mainLayout->addLayout(pathLayout);
-    
-    // File list
+    layout->addLayout(pathLayout);
+
+    filesPanel = new QFrame();
+    filesPanel->setObjectName("filesPanel");
+    auto *filesLayout = new QVBoxLayout(filesPanel);
+    filesLayout->setContentsMargins(12, 8, 12, 12);
+    filesLayout->setSpacing(4);
+    auto *filesHeader = new QHBoxLayout();
+    auto *filesTitle = new QLabel("Files");
+    filesTitle->setObjectName("sectionTitle");
+    filesTitle->setToolTip("Files queued for moving or linking.");
+    fileCountLabel = new QLabel();
+    fileCountLabel->setObjectName("muted");
+    fileCountLabel->setToolTip("Number of files remaining in the list.");
+    clearButton = new QPushButton("Clear List");
+    clearButton->setObjectName("quiet");
+    clearButton->setToolTip("Remove all files from this list without changing files on disk.");
+    filesHeader->addWidget(filesTitle);
+    filesHeader->addWidget(fileCountLabel);
+    filesHeader->addStretch();
+    filesHeader->addWidget(clearButton);
+    filesLayout->addLayout(filesHeader);
     fileListWidget = new QListWidget();
-    fileListWidget->setToolTip("Drop files here to move them or create links. Failed or skipped files remain for retry.");
+    fileListWidget->setAccessibleName("Files to move or link");
+    fileListWidget->setToolTip("Drop files here. Failed or skipped files remain for retry.");
+    fileListWidget->setMinimumHeight(128);
     fileListWidget->setDragEnabled(false);
     fileListWidget->setAcceptDrops(true);
+    fileListWidget->viewport()->installEventFilter(this);
     fileListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    mainLayout->addWidget(fileListWidget);
-    
-    // Buttons
-    QHBoxLayout *buttonLayout = new QHBoxLayout();
-    moveButton = new QPushButton("Move Files");
-    moveButton->setToolTip("Place files in the destination and leave links at their original paths, using the selected link type.");
-    clearButton = new QPushButton("Clear List");
-    clearButton->setToolTip("Remove all files from this list without changing files on disk.");
-    buttonLayout->addWidget(moveButton);
-    buttonLayout->addWidget(clearButton);
-    linkButton = new QPushButton("Link");
-    linkButton->setToolTip("Keep the original files and create links in the destination, using the selected link type.");
-    buttonLayout->addWidget(linkButton);
-    mainLayout->addLayout(buttonLayout);
-    
+    fileListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    fileListWidget->setItemDelegate(new FileDelegate(fileListWidget));
+    filesLayout->addWidget(fileListWidget);
+    layout->addWidget(filesPanel, 1);
+
+    emptyState = new QWidget(fileListWidget->viewport());
+    emptyState->setAttribute(Qt::WA_TransparentForMouseEvents);
+    auto *emptyLayout = new QVBoxLayout(emptyState);
+    emptyLayout->addStretch();
+    auto *emptyIcon = new QLabel();
+    emptyIcon->setPixmap(QIcon(":/icons/mvlink-256.png").pixmap(QSize(64, 64), devicePixelRatioF()));
+    emptyIcon->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(emptyIcon);
+    auto *emptyTitle = new QLabel("Drop files here");
+    emptyTitle->setObjectName("emptyTitle");
+    emptyTitle->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(emptyTitle);
+    auto *emptyHint = new QLabel("Files will appear here before you move or link them.");
+    emptyHint->setObjectName("muted");
+    emptyHint->setWordWrap(true);
+    emptyHint->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(emptyHint);
+    emptyLayout->addStretch();
+
     hardLinkCheckBox = new QCheckBox("Create hard links instead of symbolic links");
-    hardLinkCheckBox->setToolTip("Use hard links when checked, or symbolic links when unchecked. "
-                                "Hard links require both folders to be on the same filesystem. "
-                                "Edits through either path affect the same file. This choice is saved for next session.");
+    hardLinkCheckBox->setToolTip("Hard links require the same filesystem. Edits through either path affect the same file. This choice is saved.");
     hardLinkCheckBox->setChecked(settings.value(hardLinkKey, false).toBool());
-    connect(hardLinkCheckBox, &QCheckBox::toggled, this, [](bool checked) {
+    layout->addWidget(hardLinkCheckBox);
+    linkExplanation = new QLabel();
+    linkExplanation->setObjectName("muted");
+    linkExplanation->setWordWrap(true);
+    linkExplanation->setToolTip("How the selected link type behaves.");
+    layout->addWidget(linkExplanation);
+    connect(hardLinkCheckBox, &QCheckBox::toggled, this, [this](bool checked) {
         UserSettings settings;
         settings.setValue(hardLinkKey, checked);
         settings.sync();
+        updateUiState();
     });
-    mainLayout->addWidget(hardLinkCheckBox);
 
-    // Status label
+    auto *actions = new QHBoxLayout();
     statusLabel = new QLabel();
-    statusLabel->setToolTip("Shows the current file count or the result of the latest operation.");
-    mainLayout->addWidget(statusLabel);
-    
-    // Log view
-    QLabel *logLabel = new QLabel("Log:");
-    logLabel->setToolTip("Details of file operations, including skipped files and errors.");
-    mainLayout->addWidget(logLabel);
+    statusLabel->setWordWrap(true);
+    statusLabel->setToolTip("Current status or the result of the latest operation.");
+    actions->addWidget(statusLabel, 1);
+    linkButton = new QPushButton("Link");
+    linkButton->setToolTip("Keep the original files and create links in the destination.");
+    moveButton = new QPushButton("Move Files");
+    moveButton->setObjectName("primary");
+    moveButton->setToolTip("Place files in the destination and leave links at their original paths.");
+    actions->addWidget(linkButton);
+    actions->addWidget(moveButton);
+    layout->addLayout(actions);
 
+    activityButton = new QToolButton();
+    activityButton->setText("Activity");
+    activityButton->setCheckable(true);
+    activityButton->setArrowType(Qt::RightArrow);
+    activityButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    activityButton->setToolTip("Show or hide operation details and errors.");
+    layout->addWidget(activityButton);
     logView = new QTextEdit();
-    logView->setToolTip("Review operation details and error messages here. You can select and copy the text.");
+    logView->setAccessibleName("Activity log");
+    logView->setToolTip("Review operation details and errors. Select and copy text as needed.");
     logView->setReadOnly(true);
-    logView->setLineWrapMode(QTextEdit::WidgetWidth);
-    logView->setMaximumHeight(80); // Show approximately 2-3 lines by default
-    mainLayout->addWidget(logView);
+    logView->setFixedHeight(96);
+    logView->hide();
+    layout->addWidget(logView);
+    connect(activityButton, &QToolButton::toggled, this, [this](bool expanded) {
+        activityButton->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        logView->setVisible(expanded);
+        setMinimumHeight(qMax(520, centralWidget()->minimumSizeHint().height()));
+    });
+    auto *model = fileListWidget->model();
+    connect(model, &QAbstractItemModel::rowsInserted, this, &MainWindow::updateUiState);
+    connect(model, &QAbstractItemModel::rowsRemoved, this, &MainWindow::updateUiState);
+    connect(model, &QAbstractItemModel::modelReset, this, &MainWindow::updateUiState);
+    updateUiState();
+    setMinimumSize(580, 520);
+    resize(760, 580);
+}
 
-    resize(600, 450);
+void MainWindow::updateUiState()
+{
+    const int count = fileListWidget->count();
+    fileCountLabel->setText(QString::number(count));
+    emptyState->setVisible(count == 0);
+    emptyState->setGeometry(fileListWidget->viewport()->rect());
+    moveButton->setEnabled(count > 0);
+    linkButton->setEnabled(count > 0);
+    clearButton->setEnabled(count > 0);
+    linkExplanation->setText(hardLinkCheckBox->isChecked()
+        ? "Hard links share file contents and require the same filesystem."
+        : "Symbolic links point to a file at another path.");
+}
+
+void MainWindow::setDropHighlight(bool active)
+{
+    filesPanel->setProperty("dragActive", active);
+    filesPanel->style()->unpolish(filesPanel);
+    filesPanel->style()->polish(filesPanel);
+    filesPanel->update();
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (fileListWidget && watched == fileListWidget->viewport()) {
+        if (event->type() == QEvent::Resize && emptyState)
+            emptyState->setGeometry(fileListWidget->viewport()->rect());
+        else if (event->type() == QEvent::DragEnter) {
+            dragEnterEvent(static_cast<QDragEnterEvent *>(event));
+            return event->isAccepted();
+        } else if (event->type() == QEvent::DragMove) {
+            auto *drag = static_cast<QDragMoveEvent *>(event);
+            if (drag->mimeData()->hasUrls()) {
+                drag->acceptProposedAction();
+                return true;
+            }
+        } else if (event->type() == QEvent::DragLeave) {
+            dragLeaveEvent(static_cast<QDragLeaveEvent *>(event));
+            return true;
+        } else if (event->type() == QEvent::Drop) {
+            dropEvent(static_cast<QDropEvent *>(event));
+            return event->isAccepted();
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *event)
+{
+    setDropHighlight(false);
+    event->accept();
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
     if (event->mimeData()->hasUrls()) {
+        setDropHighlight(true);
         event->acceptProposedAction();
     }
 }
 
 void MainWindow::dropEvent(QDropEvent *event)
 {
+    setDropHighlight(false);
     const QMimeData *mimeData = event->mimeData();
     if (mimeData->hasUrls()) {
         QList<QUrl> urlList = mimeData->urls();
@@ -166,6 +387,7 @@ void MainWindow::dropEvent(QDropEvent *event)
         QString message = QString("%1 files ready to be moved").arg(fileListWidget->count());
         statusLabel->setText(message);
         logMessage(message);
+        event->acceptProposedAction();
     }
 }
 
@@ -198,12 +420,14 @@ void MainWindow::processFiles(bool linkOnly)
     if (destDir.isEmpty()) {
         QMessageBox::warning(this, "Warning", "Please select a destination folder first.");
         logMessage("Error: No destination folder selected");
+        activityButton->setChecked(true);
         return;
     }
     QDir dir(destDir);
     if (!dir.exists()) {
         QMessageBox::critical(this, "Error", "Destination folder does not exist.");
         logMessage("Error: Destination folder does not exist");
+        activityButton->setChecked(true);
         return;
     }
 
@@ -339,7 +563,7 @@ bool MainWindow::createHardLink(const QString &sourcePath, const QString &destPa
 
 void MainWindow::logMessage(const QString &message)
 {
-    logView->append(message);
+    logView->append(message.toHtmlEscaped());
     
     // scroll to latest message
     QScrollBar *scrollBar = logView->verticalScrollBar();
@@ -350,7 +574,10 @@ void MainWindow::markFileFailed(QListWidgetItem *item, const QString &reason)
 {
     failCount++;
     logMessage(reason);
-    item->setForeground(Qt::red);
+    item->setForeground(QColor("#B42318"));
+    item->setData(failureRole, reason);
+    item->setToolTip(item->data(Qt::UserRole).toString() + "\n" + reason);
+    activityButton->setChecked(true);
 }
 
 void MainWindow::rememberDestination(const QString &path)

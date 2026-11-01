@@ -9,4 +9,7 @@
         <file alias="mvlink-256.png">mvlink.png</file>
         <file>mvlink-512.png</file>
     </qresource>
+    <qresource prefix="/styles">
+        <file>theme.qss</file>
+    </qresource>
 </RCC>

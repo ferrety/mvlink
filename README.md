@@ -18,7 +18,11 @@ window or requiring a display.
 4. Click **Move Files** to place the files in the destination and leave links at
    their original paths. Click **Link** to keep the original files and create
    links in the destination.
-5. Check the status and log for the result. Failed or skipped files remain in the list.
+5. Check the status for the result. Expand **Activity** for operation details; it opens
+   automatically on errors. Failed or skipped files remain in the list for retry.
+
+The file panel shows filenames and source folders. Move, Link, and Clear List
+become available after files are added. Hover over a failed file to read its error.
 
 Hard links require the source and destination to be on the same filesystem.
 Both paths share the same file content, so edits through either path affect the

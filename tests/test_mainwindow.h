@@ -24,6 +24,8 @@ private slots:
     void testCreateSymbolicLink();
     void testHandleMove();
     void testDestinationHistory();
+    void testUiStates();
+    void testViewportDrop();
     void testHardLinkPreference();
     void testLegacyHistoryMigration();
     void testActions_data();

@@ -7,6 +7,11 @@
 #include <QTextDocument>
 #include <QSettings>
 #include <QFileDevice>
+#include <QToolButton>
+#include <QFrame>
+#include <QMimeData>
+#include <QUrl>
+#include <QDragLeaveEvent>
 
 
 void TestMainWindow::initTestCase()
@@ -293,4 +298,70 @@ void TestMainWindow::testLegacyHistoryMigration()
     MainWindow reopened;
     QCOMPARE(reopened.destinationPathEdit->itemText(0), replacement.first());
 #endif
+}
+
+void TestMainWindow::testUiStates()
+{
+    MainWindow window;
+    window.show();
+    QCoreApplication::processEvents();
+    QVERIFY(window.emptyState->isVisible());
+    QVERIFY(!window.moveButton->isEnabled());
+    QVERIFY(!window.linkButton->isEnabled());
+    QVERIFY(!window.clearButton->isEnabled());
+    QVERIFY(window.logView->isHidden());
+
+    auto *item = new QListWidgetItem("testfile.txt");
+    item->setData(Qt::UserRole, m_testFilePath);
+    window.fileListWidget->addItem(item);
+    QVERIFY(window.emptyState->isHidden());
+    QCOMPARE(window.fileCountLabel->text(), QString("1"));
+    QVERIFY(window.moveButton->isEnabled());
+    QVERIFY(window.linkButton->isEnabled());
+    QVERIFY(window.clearButton->isEnabled());
+    window.markFileFailed(item, "Cannot link <testfile.txt>");
+    QVERIFY(window.activityButton->isChecked());
+    QVERIFY(window.logView->isVisible());
+    QCoreApplication::processEvents();
+    QVERIFY(window.fileListWidget->height() >= window.fileListWidget->minimumHeight());
+    QVERIFY(item->toolTip().contains("Cannot link <testfile.txt>"));
+    QVERIFY(window.logView->toPlainText().contains("Cannot link <testfile.txt>"));
+    QCOMPARE(window.fileListWidget->count(), 1);
+    window.activityButton->click();
+    QVERIFY(window.logView->isHidden());
+    window.hardLinkCheckBox->setChecked(true);
+    QVERIFY(window.linkExplanation->text().contains("same filesystem"));
+    window.hardLinkCheckBox->setChecked(false);
+    QVERIFY(window.linkExplanation->text().contains("Symbolic"));
+    window.clearButton->click();
+    QVERIFY(window.emptyState->isVisible());
+    QVERIFY(!window.moveButton->isEnabled());
+    QVERIFY(!window.linkButton->isEnabled());
+    QVERIFY(!window.clearButton->isEnabled());
+    QVERIFY(QFile::exists(m_testFilePath));
+}
+
+void TestMainWindow::testViewportDrop()
+{
+    MainWindow window;
+    window.show();
+    QCoreApplication::processEvents();
+    QMimeData mime;
+    mime.setUrls({QUrl::fromLocalFile(m_testFilePath)});
+    QDragEnterEvent enter(QPoint(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window.fileListWidget->viewport(), &enter);
+    QVERIFY(enter.isAccepted());
+    QVERIFY(window.filesPanel->property("dragActive").toBool());
+    QDragLeaveEvent leave;
+    QApplication::sendEvent(window.fileListWidget->viewport(), &leave);
+    QVERIFY(!window.filesPanel->property("dragActive").toBool());
+    QDragEnterEvent reenter(QPoint(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window.fileListWidget->viewport(), &reenter);
+    QDropEvent drop(QPointF(20, 20), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window.fileListWidget->viewport(), &drop);
+    QVERIFY(drop.isAccepted());
+    QCOMPARE(window.fileListWidget->count(), 1);
+    QCOMPARE(window.fileListWidget->item(0)->data(Qt::UserRole).toString(), m_testFilePath);
+    QVERIFY(!window.filesPanel->property("dragActive").toBool());
+    QVERIFY(window.emptyState->isHidden());
 }

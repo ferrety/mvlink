@@ -1,0 +1,27 @@
+QMainWindow, QWidget#central { background: #F4F6FA; color: #182230; }
+QLabel { color: #182230; background: transparent; }
+QLabel#title { font-size: 22px; font-weight: 700; }
+QLabel#sectionTitle, QLabel#emptyTitle { font-size: 15px; font-weight: 600; }
+QLabel#muted { color: #526174; }
+QFrame#filesPanel { background: white; border: 1px solid #D8DFEA; border-radius: 8px; }
+QFrame#filesPanel[dragActive="true"] { border: 2px solid #2563EB; background: #EFF6FF; }
+QListWidget { background: transparent; border: none; outline: none; }
+QListWidget::item { border-radius: 6px; }
+QListWidget::item:hover { background: #EFF6FF; }
+QListWidget::item:selected { background: #2563EB; color: white; }
+QPushButton, QComboBox, QToolButton { min-height: 28px; padding: 4px 12px; border: 1px solid #D8DFEA; border-radius: 6px; background: white; color: #182230; }
+QComboBox { padding-right: 24px; }
+QComboBox QAbstractItemView { background: white; color: #182230; selection-background-color: #2563EB; selection-color: white; border: 1px solid #D8DFEA; }
+QPushButton:hover, QToolButton:hover { background: #EFF6FF; border-color: #93B4EF; }
+QPushButton:pressed, QToolButton:pressed { background: #DBEAFE; }
+QPushButton#primary { background: #2563EB; color: white; border-color: #2563EB; font-weight: 600; }
+QPushButton#primary:hover { background: #1D4ED8; }
+QPushButton#primary:pressed { background: #1E40AF; }
+QPushButton#quiet, QToolButton { background: transparent; border-color: transparent; color: #526174; }
+QPushButton:disabled, QPushButton#primary:disabled { background: #E9EDF3; color: #68778C; border-color: #E0E5ED; }
+QPushButton#quiet:disabled { background: transparent; border-color: transparent; }
+QPushButton:focus, QToolButton:focus, QComboBox:focus, QTextEdit:focus, QListWidget:focus { border: 2px solid #2563EB; }
+QCheckBox { color: #182230; spacing: 8px; padding: 4px 0; }
+QCheckBox:focus { outline: 2px solid #2563EB; }
+QTextEdit { background: white; color: #182230; border: 1px solid #D8DFEA; border-radius: 6px; padding: 8px; }
+QToolTip { background: #182230; color: white; padding: 6px; border: none; }

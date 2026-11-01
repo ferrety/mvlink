@@ -11,3 +11,5 @@ SOURCES += \
 HEADERS += \
     tests/test_mainwindow.h \
     src/mainwindow.h
+
+RESOURCES += assets/icons.qrc
