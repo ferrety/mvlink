@@ -1,7 +1,7 @@
 #include "mainwindow.h"
+#include "windowssymlink.h"
 #include <QFileInfo>
 #include <QDir>
-#include <QProcess>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -529,13 +529,10 @@ void MainWindow::clearList()
 bool MainWindow::createSymbolicLink(const QString &sourcePath, const QString &destPath, QString *error)
 {
 #ifdef Q_OS_WIN
-    QProcess process;
-    process.start("cmd.exe", QStringList() << "/c" << "mklink"
-                  << QDir::toNativeSeparators(destPath) << QDir::toNativeSeparators(sourcePath));
-    const bool finished = process.waitForFinished();
-    const bool ok = finished && process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
+    const DWORD code = WindowsSymlink::create(sourcePath, destPath);
+    const bool ok = code == ERROR_SUCCESS;
     if (!ok && error)
-        *error = finished ? QString::fromLocal8Bit(process.readAllStandardError()) : process.errorString();
+        *error = WindowsSymlink::errorMessage(code);
 #else
     QFile source(sourcePath);
     const bool ok = source.link(destPath);

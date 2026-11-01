@@ -29,6 +29,20 @@ Both paths share the same file content, so edits through either path affect the
 other. A failed hard-link operation preserves the original file and stays in
 the list for retry.
 
+On Windows, run mvlink normally. Symbolic links are first attempted without
+elevation (including support for Developer Mode). If Windows requires the
+symbolic-link privilege, one Windows administrator prompt starts a helper for
+the current app session. Subsequent links and later Move/Link operations reuse
+that helper without further prompts. The helper only creates symbolic links;
+the main window, file copies, moves, and settings stay unelevated. It exits when
+mvlink closes. Cancelling the prompt reports a failure and restores the original
+file during a move; further elevation attempts stay cancelled until mvlink is
+restarted. Restart mvlink as well if the helper stops unexpectedly. Ordinary
+file permission errors do not trigger elevation.
+
+Windows symbolic-link creation supports extended-length DOS and UNC paths,
+including paths longer than `MAX_PATH`, without requiring a long-path manifest.
+
 The hard-link checkbox is saved whenever it changes and restored next session.
 Preferences and destination history use a per-user INI file selected by Qt:
 

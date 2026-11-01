@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "windowssymlink.h"
 #include <QApplication>
 #include <QIcon>
 #include <cstdio>
@@ -6,6 +7,11 @@
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    const int helperResult = WindowsSymlink::runHelperFromCommandLine();
+    if (helperResult != -1)
+        return helperResult;
+#endif
     // QApplication needs a display; version queries must also work headlessly.
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-v") == 0) {

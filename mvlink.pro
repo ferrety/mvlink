@@ -6,13 +6,16 @@ include(version.pri)
 
 SOURCES += \
     src/main.cpp \
-    src/mainwindow.cpp
+    src/mainwindow.cpp \
+    src/windowssymlink.cpp
 
 HEADERS += \
-    src/mainwindow.h
+    src/mainwindow.h \
+    src/windowssymlink.h
 
 RESOURCES += assets/icons.qrc
 win32:RC_ICONS = assets/mvlink.ico
+win32:LIBS += -lshell32 -ladvapi32
 
 unix:!macx {
     isEmpty(PREFIX): PREFIX = /usr/local

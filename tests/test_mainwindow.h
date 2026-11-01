@@ -33,6 +33,20 @@ private slots:
     void testSameDestination();
     void testHardLinkFailure();
     void testLongFilenameMove();
+#ifdef Q_OS_WIN
+    void testWindowsElevationPolicy_data();
+    void testWindowsElevationPolicy();
+    void testWindowsHelperValidation();
+    void testWindowsHelperProcess();
+    void testWindowsSessionCancellation();
+    void testWindowsSessionReuse();
+    void testWindowsSessionHelperExit();
+    void testWindowsNativePaths_data();
+    void testWindowsNativePaths();
+    void testWindowsNativePathFallback();
+    void testWindowsLongPaths_data();
+    void testWindowsLongPaths();
+#endif
 
 };
 
